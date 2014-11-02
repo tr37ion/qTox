@@ -128,7 +128,8 @@ private slots:
     void getPassword(QString info, int passtype, uint8_t* salt);
     void thingAccepted();
     void thingRejected();
-
+    void trayNotificationChanged();
+    
 private:
     void init();
     void hideMainForms();
@@ -144,7 +145,8 @@ private:
     QAction *statusOnline,
             *statusAway,
             *statusBusy,
-            *actionQuit;
+            *actionQuit,
+            *switchNotifcation;
 
     Ui::MainWindow *ui;
     QSplitter *centralLayout;

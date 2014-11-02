@@ -85,11 +85,18 @@ void Widget::init()
         statusBusy->setIcon(QIcon(":ui/statusButton/dot_busy.png"));
         actionQuit = new QAction(tr("&Quit"), this);
         connect(actionQuit, SIGNAL(triggered()), qApp, SLOT(quit()));
+        switchNotifcation = new QAction(tr("Notifications"), this);
+        switchNotifcation->setCheckable(true);
+        connect(switchNotifcation, SIGNAL(triggered()), this, SLOT(trayNotificationChanged()));
+        
+        switchNotifcation->setChecked(Settings::getInstance().getNEnabled());
         
         trayMenu->addAction(new QAction(tr("Change status to:"), this));
         trayMenu->addAction(statusOnline);
         trayMenu->addAction(statusAway);
         trayMenu->addAction(statusBusy);
+        trayMenu->addSeparator();
+        trayMenu->addAction(switchNotifcation);
         trayMenu->addSeparator();
         trayMenu->addAction(actionQuit);
         icon->setContextMenu(trayMenu);
@@ -681,14 +688,11 @@ void Widget::onFriendStatusChanged(int friendId, Status status)
                                           "white", QDateTime::currentDateTime());
     }
 
-    //notifications->append(
-              Yesnonotification *ynn =  new Yesnonotification(this->getInstance(),
+    notifications->append(new Notification(this->getInstance(),
                      Settings::getInstance().getSavedAvatar(f->userId),
-                     f->getName() + " is online",
-                     f->widget->getStatusMsg());
-              connect(ynn, SIGNAL(accepted()), this, SLOT(thingAccepted()));
-              connect(ynn, SIGNAL(rejected()), this, SLOT(thingRejected()));
-            //);
+                     f->getName() + tr(" is online"),
+                     f->widget->getStatusMsg())
+            );
 }
 
 void Widget::thingAccepted()
@@ -1045,6 +1049,12 @@ void Widget::setStatusAway()
 void Widget::setStatusBusy()
 {
     core->setStatus(Status::Busy);
+}
+
+void Widget::trayNotificationChanged()
+{
+    Settings::getInstance().setNEnabled(switchNotifcation->isChecked());     
+    Settings::getInstance().save();
 }
 
 void Widget::onMessageSendResult(int friendId, const QString& message, int messageId)
