@@ -653,6 +653,15 @@ void Widget::addFriend(int friendId, const QString &userId)
     }
 }
 
+void Widget::simpleNotification(QString author = "", QString header = "", QString message = "" )
+{
+    notifications->append(new Notification(this->getInstance(),
+                     Settings::getInstance().getSavedAvatar(author),
+                     header,
+                     message)
+            );
+}
+
 void Widget::addFriendFailed(const QString&)
 {
     QMessageBox::critical(0,"Error","Couldn't request friendship");
@@ -687,12 +696,7 @@ void Widget::onFriendStatusChanged(int friendId, Status status)
         f->chatForm->addSystemInfoMessage(tr("%1 is now %2", "e.g. \"Dubslow is now online\"").arg(f->getName()).arg(fStatus),
                                           "white", QDateTime::currentDateTime());
     }
-
-    notifications->append(new Notification(this->getInstance(),
-                     Settings::getInstance().getSavedAvatar(f->userId),
-                     f->getName() + tr(" is online"),
-                     f->widget->getStatusMsg())
-            );
+    simpleNotification(f->userId, " is online");
 }
 
 void Widget::thingAccepted()
@@ -747,6 +751,8 @@ void Widget::onFriendMessageReceived(int friendId, const QString& message, bool 
     Friend* f = FriendList::findFriend(friendId);
     if (!f)
         return;
+
+    Widget::getInstance()->simpleNotification(f->userId, "new message", message);    
 
     QDateTime timestamp = QDateTime::currentDateTime();
     f->chatForm->addMessage(f->getName(), message, isAction, timestamp);
