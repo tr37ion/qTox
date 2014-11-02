@@ -50,6 +50,7 @@ public:
 
     QString getName() const;
     QString getStatusMsg() const;
+    QPixmap getAvatar() const;
 
 signals:
     void chatroomWidgetClicked(GenericChatroomWidget* widget);

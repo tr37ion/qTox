@@ -44,6 +44,8 @@ class FriendListWidget;
 class MaskablePixmapWidget;
 class QTimer;
 class QTranslator;
+class Notification;
+class Yesnonotification;
 
 class Widget : public QMainWindow
 {
@@ -124,6 +126,8 @@ private slots:
     void onIconClick(QSystemTrayIcon::ActivationReason);
     void onUserAway();
     void getPassword(QString info, int passtype, uint8_t* salt);
+    void thingAccepted();
+    void thingRejected();
 
 private:
     void init();
@@ -134,6 +138,7 @@ private:
     void removeGroup(Group* g);
     QString askProfiles();
     QString detectProfile();
+    QList<Notification*> *notifications;
     QSystemTrayIcon *icon;
     QMenu *trayMenu;
     QAction *statusOnline,

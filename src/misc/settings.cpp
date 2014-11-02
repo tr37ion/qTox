@@ -139,6 +139,22 @@ void Settings::load()
         statusChangeNotificationEnabled = s.value("statusChangeNotificationEnabled", false).toBool();
     s.endGroup();
 
+    s.beginGroup("Notifications");
+        nEnabled = s.value("nEnabled", true).toBool();
+        nDuringCall = s.value("nDuringCall", false).toBool();
+        nStatusChange = s.value("nStatusChange", true).toBool();
+        nOnline = s.value("nOnline", true).toBool();
+        nAway = s.value("nAway", false).toBool();
+        nBusy = s.value("nBusy", false).toBool();
+        nFriendRequest = s.value("nFriendRequest", true).toBool();
+        nFileTransfer = s.value("nFileTransfer", true).toBool();
+        nPrivateMessage = s.value("nPrivateMessage", true).toBool();
+        nFriendCalling = s.value("nFriendCalling", true).toBool();
+        nGroupInvitation = s.value("nGroupInvitation", true).toBool();
+        nGroupHighlight = s.value("nGroupHighlight", true).toBool();
+        nGroupMessage = s.value("nGroupMessage", false).toBool();
+    s.endGroup();
+
     s.beginGroup("State");
         windowGeometry = s.value("windowGeometry", QByteArray()).toByteArray();
         windowState = s.value("windowState", QByteArray()).toByteArray();
@@ -261,6 +277,22 @@ void Settings::save(QString path)
         s.setValue("nativeStyle", useNativeStyle);
         s.setValue("style",style);
         s.setValue("statusChangeNotificationEnabled", statusChangeNotificationEnabled);
+    s.endGroup();
+
+    s.beginGroup("Notifications");
+        s.value("nEnabled", nEnabled);
+        s.value("nDuringCall", nDuringCall);
+        s.value("nStatusChange", nStatusChange);
+        s.value("nOnline", nOnline);
+        s.value("nAway", nAway);
+        s.value("nBusy", nBusy);
+        s.value("nFriendRequest", nFriendRequest);
+        s.value("nFileTransfer", nFileTransfer);
+        s.value("nPrivateMessage", nPrivateMessage);
+        s.value("nFriendCalling", nFriendCalling);
+        s.value("nGroupInvitation", nGroupInvitation);
+        s.value("nGroupHighlight", nGroupHighlight);
+        s.value("nGroupMessage", nGroupMessage);
     s.endGroup();
 
     s.beginGroup("State");
@@ -391,6 +423,137 @@ void Settings::setMakeToxPortable(bool newValue)
 bool Settings::getAutostartInTray() const
 {
     return autostartInTray;
+}
+
+//notifications
+bool Settings::getNDuringCall() const
+{
+    return nDuringCall;
+}
+
+void Settings::setNDuringCall(bool newValue)
+{
+    nDuringCall = newValue;
+}
+
+bool Settings::getNEnabled() const
+{
+    return nEnabled;
+}
+
+void Settings::setNEnabled(bool newValue)
+{
+    nEnabled = newValue;
+}
+
+bool Settings::getNStatusChange() const
+{
+    return nStatusChange;
+}
+
+void Settings::setNStatusChange(bool newValue)
+{
+    nStatusChange = newValue;
+}
+
+bool Settings::getNOnline() const
+{
+    return nOnline;
+}
+
+void Settings::setNOnline(bool newValue)
+{
+    nOnline = newValue;
+}
+
+bool Settings::getNAway() const
+{
+    return nAway;
+}
+
+void Settings::setNAway(bool newValue)
+{
+    nAway = newValue;
+}
+
+bool Settings::getNBusy() const
+{
+    return nBusy;
+}
+
+void Settings::setNBusy(bool newValue)
+{
+    nBusy = newValue;
+}
+
+bool Settings::getNFriendRequest() const
+{
+    return nFriendRequest;
+}
+
+void Settings::setNFriendRequest(bool newValue)
+{
+    nFriendRequest = newValue;
+}
+
+bool Settings::getNFileTransfer() const
+{
+    return nFileTransfer;
+}
+
+void Settings::setNFileTransfer(bool newValue)
+{
+    nFileTransfer = newValue;
+}
+
+bool Settings::getNPrivateMessage() const
+{
+    return nPrivateMessage;
+}
+
+void Settings::setNPrivateMessage(bool newValue)
+{
+    nPrivateMessage = newValue;
+}
+
+bool Settings::getNFriendCalling() const
+{
+    return nFriendCalling;
+}
+
+void Settings::setNFriendCalling(bool newValue)
+{
+    nFriendCalling = newValue;
+}
+
+bool Settings::getNGroupInvitation() const
+{
+    return nGroupInvitation;
+}
+
+void Settings::setNGroupInvitation(bool newValue)
+{
+    nGroupInvitation = newValue;
+}
+
+bool Settings::getNGroupHighlight() const
+{
+    return nGroupHighlight;
+}
+
+void Settings::setNGroupHighlight(bool newValue)
+{
+    nGroupHighlight = newValue;
+}
+
+bool Settings::getNGroupMessage() const
+{
+    return nGroupMessage;
+}
+
+void Settings::setNGroupMessage(bool newValue)
+{
+    nGroupMessage = newValue;
 }
 
 QString Settings::getStyle() const

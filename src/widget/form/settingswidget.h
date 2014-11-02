@@ -24,6 +24,7 @@
 class Camera;
 class GenericForm;
 class GeneralForm;
+class NotificationForm;
 class IdentityForm;
 class PrivacyForm;
 class AVForm;

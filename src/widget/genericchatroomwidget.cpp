@@ -93,6 +93,11 @@ QString GenericChatroomWidget::getStatusMsg() const
     return statusMessageLabel->text();
 }
 
+QPixmap GenericChatroomWidget::getAvatar() const
+{
+    return avatar->getPixmap();
+}
+
 void GenericChatroomWidget::mouseReleaseEvent(QMouseEvent*)
 {
     emit chatroomWidgetClicked(this);

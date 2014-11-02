@@ -21,6 +21,7 @@
 #include "src/widget/form/settings/generalform.h"
 #include "src/widget/form/settings/identityform.h"
 #include "src/widget/form/settings/privacyform.h"
+#include "src/widget/form/settings/notificationsform.h"
 #include "src/widget/form/settings/avform.h"
 #include <QTabWidget>
 
@@ -51,11 +52,12 @@ SettingsWidget::SettingsWidget(QWidget* parent)
     bodyLayout->addWidget(settingsWidgets);
 
     GeneralForm* gfrm = new GeneralForm(this);
+    NotificationsForm* ns = new NotificationsForm(this);
     IdentityForm* ifrm = new IdentityForm;
     PrivacyForm* pfrm = new PrivacyForm;
     AVForm* avfrm = new AVForm;
 
-    GenericForm* cfgForms[] = { gfrm, ifrm, pfrm, avfrm };
+    GenericForm* cfgForms[] = { gfrm, ns, ifrm, pfrm, avfrm};
     for (GenericForm* cfgForm : cfgForms)
         settingsWidgets->addTab(cfgForm, cfgForm->getFormIcon(), cfgForm->getFormName());
 

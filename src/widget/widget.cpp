@@ -31,6 +31,8 @@
 #include "src/video/camera.h"
 #include "form/chatform.h"
 #include "maskablepixmapwidget.h"
+#include "notification.h"
+#include "yesnonotification.h"
 #include <QMessageBox>
 #include <QDebug>
 #include <QFile>
@@ -64,6 +66,7 @@ void Widget::init()
 {
     
     ui->setupUi(this);
+    notifications = new QList<Notification* >;
     
     if (QSystemTrayIcon::isSystemTrayAvailable() == true)
     {
@@ -275,9 +278,14 @@ Widget::~Widget()
     for (Friend* f : FriendList::friendList)
         delete f;
     FriendList::friendList.clear();
+
     for (Group* g : GroupList::groupList)
         delete g;
     GroupList::groupList.clear();
+
+    qDeleteAll(notifications->begin(), notifications->end());
+    notifications->clear();
+
     delete statusAway;
     delete statusBusy;
     delete statusOnline;
@@ -672,7 +680,27 @@ void Widget::onFriendStatusChanged(int friendId, Status status)
         f->chatForm->addSystemInfoMessage(tr("%1 is now %2", "e.g. \"Dubslow is now online\"").arg(f->getName()).arg(fStatus),
                                           "white", QDateTime::currentDateTime());
     }
+
+    //notifications->append(
+              Yesnonotification *ynn =  new Yesnonotification(this->getInstance(),
+                     Settings::getInstance().getSavedAvatar(f->userId),
+                     f->getName() + " is online",
+                     f->widget->getStatusMsg());
+              connect(ynn, SIGNAL(accepted()), this, SLOT(thingAccepted()));
+              connect(ynn, SIGNAL(rejected()), this, SLOT(thingRejected()));
+            //);
 }
+
+void Widget::thingAccepted()
+{
+    qDebug() << "accepted from qwidget!";
+}
+
+void Widget::thingRejected()
+{
+    qDebug() << "rejected from qwidget!";
+}
+
 
 void Widget::onFriendStatusMessageChanged(int friendId, const QString& message)
 {

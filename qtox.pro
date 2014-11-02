@@ -28,6 +28,7 @@ TEMPLATE  = app
 FORMS    += \
     src/mainwindow.ui \
     src/widget/form/settings/generalsettings.ui \
+    src/widget/form/settings/notificationsform.ui \
     src/widget/form/settings/avsettings.ui \
     src/widget/form/settings/identitysettings.ui \
     src/widget/form/settings/privacysettings.ui \
@@ -104,6 +105,7 @@ HEADERS  += src/widget/form/addfriendform.h \
     src/widget/form/groupchatform.h \
     src/widget/form/settingswidget.h \
     src/widget/form/settings/genericsettings.h \
+    src/widget/form/settings/notificationsform.h \    
     src/widget/form/settings/generalform.h \
     src/widget/form/settings/identityform.h \
     src/widget/form/settings/privacyform.h \
@@ -129,6 +131,7 @@ HEADERS  += src/widget/form/addfriendform.h \
     src/misc/style.h \
     src/widget/adjustingscrollarea.h \
     src/widget/croppinglabel.h \
+    src/widget/notification.h \
     src/widget/friendlistwidget.h \
     src/widget/genericchatroomwidget.h \
     src/widget/form/genericchatform.h \
@@ -156,7 +159,8 @@ HEADERS  += src/widget/form/addfriendform.h \
     src/widget/form/setpassworddialog.h \
     src/widget/form/tabcompleter.h \
     src/video/videoframe.h \
-    src/misc/flowlayout.h
+    src/misc/flowlayout.h \
+    src/widget/yesnonotification.h
 
 SOURCES += \
     src/widget/form/addfriendform.cpp \
@@ -164,12 +168,14 @@ SOURCES += \
     src/widget/form/groupchatform.cpp \
     src/widget/form/settingswidget.cpp \
     src/widget/form/settings/generalform.cpp \
+    src/widget/form/settings/notificationsform.cpp \
     src/widget/form/settings/identityform.cpp \
     src/widget/form/settings/privacyform.cpp \
     src/widget/form/settings/avform.cpp \
     src/widget/form/filesform.cpp \
     src/widget/tool/chattextedit.cpp \
     src/widget/tool/friendrequestdialog.cpp \
+    src/widget/notification.cpp \
     src/widget/friendwidget.cpp \
     src/widget/groupwidget.cpp \
     src/widget/widget.cpp \
@@ -215,4 +221,5 @@ SOURCES += \
     src/video/netvideosource.cpp \
     src/widget/form/tabcompleter.cpp \
     src/video/videoframe.cpp \
-    src/misc/flowlayout.cpp
+    src/misc/flowlayout.cpp \
+    src/widget/yesnonotification.cpp

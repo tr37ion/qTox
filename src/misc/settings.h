@@ -91,6 +91,46 @@ public:
     int getAutoAwayTime() const;
     void setAutoAwayTime(int newValue);
 
+    //notifications
+    bool getNDuringCall() const;
+    void setNDuringCall(bool newValue);
+
+    bool getNEnabled() const;
+    void setNEnabled(bool newValue);
+
+    bool getNStatusChange() const;
+    void setNStatusChange(bool newValue);
+
+    bool getNOnline() const;
+    void setNOnline(bool newValue);
+
+    bool getNAway() const;
+    void setNAway(bool newValue);
+
+    bool getNBusy() const;
+    void setNBusy(bool newValue);
+
+    bool getNFriendRequest() const;
+    void setNFriendRequest(bool newValue);
+
+    bool getNFileTransfer() const;
+    void setNFileTransfer(bool newValue);
+
+    bool getNPrivateMessage() const;
+    void setNPrivateMessage(bool newValue);
+
+    bool getNFriendCalling() const;
+    void setNFriendCalling(bool newValue);
+
+    bool getNGroupInvitation() const;
+    void setNGroupInvitation(bool newValue);
+
+    bool getNGroupHighlight() const;
+    void setNGroupHighlight(bool newValue);
+
+    bool getNGroupMessage() const;
+    void setNGroupMessage(bool newValue);
+
     QPixmap getSavedAvatar(const QString& ownerId);
     void saveAvatar(QPixmap& pic, const QString& ownerId);
 
@@ -199,15 +239,31 @@ private:
     int dhtServerId;
     bool dontShowDhtDialog;
 
-    bool enableIPv6;
+    //general
     QString translation;
     static bool makeToxPortable;
     bool autostartInTray;
     bool closeToTray;
     bool minimizeToTray;
 
-    bool forceTCP;
+    //notification
+    bool nDuringCall;
+    bool nEnabled;
+    bool nStatusChange;
+    bool nOnline;
+    bool nAway;
+    bool nBusy;
+    bool nFriendRequest;
+    bool nFileTransfer;
+    bool nPrivateMessage;
+    bool nFriendCalling;
+    bool nGroupInvitation;
+    bool nGroupHighlight;
+    bool nGroupMessage;
 
+    //connection
+    bool enableIPv6;
+    bool forceTCP;
     bool useProxy;
     QString proxyAddr;
     int proxyPort;
