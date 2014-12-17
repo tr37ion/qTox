@@ -397,7 +397,7 @@ QSplitter:handle{
           </property>
           <layout class="QGridLayout" name="gridLayout_2">
            <item row="0" column="0">
-            <layout class="QHBoxLayout" name="horizontalLayout_3">
+            <layout class="QHBoxLayout" name="myProfile">
              <property name="spacing">
               <number>0</number>
              </property>
@@ -1052,6 +1052,9 @@ QSplitter:handle{
             <verstretch>0</verstretch>
            </sizepolicy>
           </property>
+          <property name="styleSheet">
+           <string notr="true"/>
+          </property>
           <layout class="QHBoxLayout" name="horizontalLayout_2">
            <property name="spacing">
             <number>0</number>
@@ -1088,6 +1091,12 @@ QSplitter:handle{
              <property name="toolTip">
               <string>Add friends</string>
              </property>
+             <property name="autoFillBackground">
+              <bool>false</bool>
+             </property>
+             <property name="styleSheet">
+              <string notr="true"/>
+             </property>
              <property name="text">
               <string/>
              </property>
@@ -1095,8 +1104,14 @@ QSplitter:handle{
               <iconset resource="../res.qrc">
                <normaloff>:/img/add.png</normaloff>:/img/add.png</iconset>
              </property>
+             <property name="checkable">
+              <bool>false</bool>
+             </property>
+             <property name="autoDefault">
+              <bool>false</bool>
+             </property>
              <property name="flat">
-              <bool>true</bool>
+              <bool>false</bool>
              </property>
             </widget>
            </item>
@@ -1114,12 +1129,15 @@ QSplitter:handle{
              <property name="toolTip">
               <string>Create a group chat</string>
              </property>
+             <property name="autoFillBackground">
+              <bool>false</bool>
+             </property>
              <property name="text">
               <string/>
              </property>
              <property name="icon">
               <iconset resource="../res.qrc">
-               <normaloff>:/img/group_2x.png</normaloff>:/img/group_2x.png</iconset>
+               <normaloff>:/img/group_button.png</normaloff>:/img/group_button.png</iconset>
              </property>
              <property name="flat">
               <bool>true</bool>

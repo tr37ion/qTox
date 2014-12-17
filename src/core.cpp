@@ -20,6 +20,7 @@
 #include "misc/settings.h"
 #include "widget/widget.h"
 #include "historykeeper.h"
+#include "src/audio.h"
 
 #include <tox/tox.h>
 #include <tox/toxencryptsave.h>
@@ -45,11 +46,17 @@ const QString Core::CONFIG_FILE_NAME = "data";
 const QString Core::TOX_EXT = ".tox";
 QList<ToxFile> Core::fileSendQueue;
 QList<ToxFile> Core::fileRecvQueue;
+QHash<int, ToxGroupCall> Core::groupCalls;
+QThread* Core::coreThread{nullptr};
 
-Core::Core(Camera* cam, QThread *coreThread, QString loadPath) :
-    tox(nullptr), camera(cam), loadPath(loadPath)
+Core::Core(Camera* cam, QThread *CoreThread, QString loadPath) :
+    tox(nullptr), camera(cam), loadPath(loadPath), ready{false}
 {
     qDebug() << "Core: loading Tox from" << loadPath;
+
+    coreThread = CoreThread;
+
+    Audio::getInstance();
 
     videobuf = new uint8_t[videobufsize];
 
@@ -65,6 +72,8 @@ Core::Core(Camera* cam, QThread *coreThread, QString loadPath) :
 
     for (int i=0; i<TOXAV_MAX_CALLS;i++)
     {
+        calls[i].active = false;
+        calls[i].alSource = 0;
         calls[i].sendAudioTimer = new QTimer();
         calls[i].sendVideoTimer = new QTimer();
         calls[i].sendAudioTimer->moveToThread(coreThread);
@@ -74,42 +83,22 @@ Core::Core(Camera* cam, QThread *coreThread, QString loadPath) :
 
     // OpenAL init
     QString outDevDescr = Settings::getInstance().getOutDev();                                     ;
-    if (outDevDescr.isEmpty())
-        alOutDev = alcOpenDevice(nullptr);
-    else
-        alOutDev = alcOpenDevice(outDevDescr.toStdString().c_str());
-    if (!alOutDev)
-    {
-        qWarning() << "Core: Cannot open output audio device";
-    }
-    else
-    {
-        alContext=alcCreateContext(alOutDev,nullptr);
-        if (!alcMakeContextCurrent(alContext))
-        {
-            qWarning() << "Core: Cannot create output audio context";
-            alcCloseDevice(alOutDev);
-        }
-        else
-            alGenSources(1, &alMainSource);
-    }
-
+    Audio::openOutput(outDevDescr);
     QString inDevDescr = Settings::getInstance().getInDev();
-    if (inDevDescr.isEmpty())
-        alInDev = alcCaptureOpenDevice(nullptr,av_DefaultSettings.audio_sample_rate, AL_FORMAT_MONO16,
-                                   (av_DefaultSettings.audio_frame_duration * av_DefaultSettings.audio_sample_rate * 4) / 1000);
-    else
-        alInDev = alcCaptureOpenDevice(inDevDescr.toStdString().c_str(),av_DefaultSettings.audio_sample_rate, AL_FORMAT_MONO16,
-                                   (av_DefaultSettings.audio_frame_duration * av_DefaultSettings.audio_sample_rate * 4) / 1000);
-    if (!alInDev)
-        qWarning() << "Core: Cannot open input audio device";
+    Audio::openInput(inDevDescr);
 }
 
 Core::~Core()
 {
-    if (tox) {
+    clearPassword(Core::ptMain);
+    clearPassword(Core::ptHistory);
+
+    if (tox)
+    {
         toxav_kill(toxav);
+        toxav = nullptr;
         tox_kill(tox);
+        tox = nullptr;
     }
 
     if (videobuf)
@@ -118,18 +107,8 @@ Core::~Core()
         videobuf=nullptr;
     }
 
-    if (alContext)
-    {
-        alcMakeContextCurrent(nullptr);
-        alcDestroyContext(alContext);
-    }
-    if (alOutDev)
-        alcCloseDevice(alOutDev);
-    if (alInDev)
-        alcCaptureCloseDevice(alInDev);
-
-    clearPassword(Core::ptMain);
-    clearPassword(Core::ptHistory);
+    Audio::closeInput();
+    Audio::closeOutput();
 }
 
 Core* Core::getInstance()
@@ -262,12 +241,14 @@ void Core::start()
     tox_callback_group_invite(tox, onGroupInvite, this);
     tox_callback_group_message(tox, onGroupMessage, this);
     tox_callback_group_namelist_change(tox, onGroupNamelistChange, this);
+    tox_callback_group_title(tox, onGroupTitleChange, this);
     tox_callback_group_action(tox, onGroupAction, this);
     tox_callback_file_send_request(tox, onFileSendRequestCallback, this);
     tox_callback_file_control(tox, onFileControlCallback, this);
     tox_callback_file_data(tox, onFileDataCallback, this);
     tox_callback_avatar_info(tox, onAvatarInfoCallback, this);
     tox_callback_avatar_data(tox, onAvatarDataCallback, this);
+    tox_callback_read_receipt(tox, onReadReceiptCallback, this);
 
     toxav_register_callstate_callback(toxav, onAvInvite, av_OnInvite, this);
     toxav_register_callstate_callback(toxav, onAvStart, av_OnStart, this);
@@ -275,14 +256,13 @@ void Core::start()
     toxav_register_callstate_callback(toxav, onAvReject, av_OnReject, this);
     toxav_register_callstate_callback(toxav, onAvEnd, av_OnEnd, this);
     toxav_register_callstate_callback(toxav, onAvRinging, av_OnRinging, this);
-    toxav_register_callstate_callback(toxav, onAvStarting, av_OnStarting, this);
-    toxav_register_callstate_callback(toxav, onAvEnding, av_OnEnding, this);
-    toxav_register_callstate_callback(toxav, onAvMediaChange, av_OnMediaChange, this);
+    toxav_register_callstate_callback(toxav, onAvMediaChange, av_OnPeerCSChange, this);
+    toxav_register_callstate_callback(toxav, onAvMediaChange, av_OnSelfCSChange, this);
     toxav_register_callstate_callback(toxav, onAvRequestTimeout, av_OnRequestTimeout, this);
     toxav_register_callstate_callback(toxav, onAvPeerTimeout, av_OnPeerTimeout, this);
 
-    toxav_register_audio_recv_callback(toxav, playCallAudio, this);
-    toxav_register_video_recv_callback(toxav, playCallVideo, this);
+    toxav_register_audio_callback(toxav, playCallAudio, this);
+    toxav_register_video_callback(toxav, playCallVideo, this);
 
     QPixmap pic = Settings::getInstance().getSavedAvatar(getSelfId().toString());
     if (!pic.isNull() && !pic.size().isEmpty())
@@ -297,6 +277,8 @@ void Core::start()
     else
         qDebug() << "Core: Error loading self avatar";
     
+    ready = true;
+
     process(); // starts its own timer
 }
 
@@ -316,6 +298,7 @@ void Core::process()
 
     static int tolerance = CORE_DISCONNECT_TOLERANCE;
     tox_do(tox);
+    toxav_do(toxav);
 
 #ifdef DEBUG
     //we want to see the debug messages immediately
@@ -329,7 +312,7 @@ void Core::process()
         bootstrapDht();
     }
 
-    toxTimer->start(tox_do_interval(tox));
+    toxTimer->start(qMin(tox_do_interval(tox), toxav_do_interval(toxav)));
 }
 
 bool Core::checkConnection()
@@ -359,6 +342,11 @@ void Core::bootstrapDht()
     QList<Settings::DhtServer> dhtServerList = s.getDhtServerList();
 
     int listSize = dhtServerList.size();
+    if (listSize == 0)
+    {
+        qDebug() << "Settings: no bootstrap list?!?";
+        return;
+    }
     static int j = qrand() % listSize;
 
     qDebug() << "Core: Bootstraping to the DHT ...";
@@ -472,27 +460,49 @@ void Core::onAction(Tox*/* tox*/, int friendId, const uint8_t *cMessage, uint16_
 void Core::onGroupAction(Tox*, int groupnumber, int peernumber, const uint8_t *action, uint16_t length, void* _core)
 {
     Core* core = static_cast<Core*>(_core);
-    emit core->groupMessageReceived(groupnumber, CString::toString(action, length),
-                                    core->getGroupPeerName(groupnumber, peernumber), true);
+    emit core->groupMessageReceived(groupnumber, peernumber, CString::toString(action, length), true);
 }
 
-void Core::onGroupInvite(Tox*, int friendnumber, const uint8_t *group_public_key, uint16_t length,void *core)
+void Core::onGroupInvite(Tox*, int friendnumber, uint8_t type, const uint8_t *data, uint16_t length,void *core)
 {
-    qDebug() << QString("Core: Group invite by %1").arg(friendnumber);
-    emit static_cast<Core*>(core)->groupInviteReceived(friendnumber, group_public_key,length);
+    QByteArray pk((char*)data, length);
+    if (type == TOX_GROUPCHAT_TYPE_TEXT)
+    {
+        qDebug() << QString("Core: Text group invite by %1").arg(friendnumber);
+        emit static_cast<Core*>(core)->groupInviteReceived(friendnumber,type,pk);
+    }
+    else if (type == TOX_GROUPCHAT_TYPE_AV)
+    {
+        qDebug() << QString("Core: AV group invite by %1").arg(friendnumber);
+        emit static_cast<Core*>(core)->groupInviteReceived(friendnumber,type,pk);
+    }
+    else
+    {
+        qWarning() << "Core: Group invite with unknown type "<<type;
+    }
 }
 
 void Core::onGroupMessage(Tox*, int groupnumber, int peernumber, const uint8_t * message, uint16_t length, void *_core)
 {
     Core* core = static_cast<Core*>(_core);
-    emit core->groupMessageReceived(groupnumber, CString::toString(message, length),
-                                    core->getGroupPeerName(groupnumber, peernumber), false);
+
+    emit core->groupMessageReceived(groupnumber, peernumber, CString::toString(message, length), false);
 }
 
 void Core::onGroupNamelistChange(Tox*, int groupnumber, int peernumber, uint8_t change, void *core)
 {
     qDebug() << QString("Core: Group namelist change %1:%2 %3").arg(groupnumber).arg(peernumber).arg(change);
     emit static_cast<Core*>(core)->groupNamelistChanged(groupnumber, peernumber, change);
+}
+
+void Core::onGroupTitleChange(Tox*, int groupnumber, int peernumber, const uint8_t* title, uint8_t len, void* _core)
+{
+    qDebug() << "Core: group" << groupnumber << "title changed by" << peernumber;
+    Core* core = static_cast<Core*>(_core);
+    QString author;
+    if (peernumber >= 0)
+        author = core->getGroupPeerName(groupnumber, peernumber);
+    emit core->groupTitleChanged(groupnumber, author, CString::toString(title, len));
 }
 
 void Core::onFileSendRequestCallback(Tox*, int32_t friendnumber, uint8_t filenumber, uint64_t filesize,
@@ -665,7 +675,7 @@ void Core::onAvatarInfoCallback(Tox*, int32_t friendnumber, uint8_t format,
 
     if (format == TOX_AVATAR_FORMAT_NONE)
     {
-        qDebug() << "Core: Got null avatar info from" << core->getFriendUsername(friendnumber);
+        //qDebug() << "Core: Got null avatar info from" << core->getFriendUsername(friendnumber);
         emit core->friendAvatarRemoved(friendnumber);
         QFile::remove(QDir(Settings::getSettingsDirPath()).filePath("avatars/"+core->getFriendAddress(friendnumber).left(64)+".png"));
         QFile::remove(QDir(Settings::getSettingsDirPath()).filePath("avatars/"+core->getFriendAddress(friendnumber).left(64)+".hash"));
@@ -679,8 +689,8 @@ void Core::onAvatarInfoCallback(Tox*, int32_t friendnumber, uint8_t format,
             qDebug() << "Core: Got new avatar info from" << core->getFriendUsername(friendnumber);
             tox_request_avatar_data(core->tox, friendnumber);
         }
-        else
-            qDebug() << "Core: Got same avatar info from" << core->getFriendUsername(friendnumber);
+        //else
+        //    qDebug() << "Core: Got same avatar info from" << core->getFriendUsername(friendnumber);
     }
 }
 
@@ -698,6 +708,11 @@ void Core::onAvatarDataCallback(Tox*, int32_t friendnumber, uint8_t,
     }
 }
 
+void Core::onReadReceiptCallback(Tox*, int32_t friendnumber, uint32_t receipt, void *core)
+{
+     emit static_cast<Core*>(core)->receiptRecieved(friendnumber, receipt);
+}
+
 void Core::acceptFriendRequest(const QString& userId)
 {
     int friendId = tox_add_friend_norequest(tox, CUserId(userId).data());
@@ -711,49 +726,48 @@ void Core::acceptFriendRequest(const QString& userId)
 
 void Core::requestFriendship(const QString& friendAddress, const QString& message)
 {
-    qDebug() << "Core: requesting friendship of "+friendAddress;
-    CString cMessage(message);
-
-    int friendId = tox_add_friend(tox, CFriendAddress(friendAddress).data(), cMessage.data(), cMessage.size());
     const QString userId = friendAddress.mid(0, TOX_CLIENT_ID_SIZE * 2);
-    if (friendId < 0) {
-        emit failedToAddFriend(userId);
-    } else {
-        // Update our friendAddresses
-        bool found=false;
-        QList<QString>& friendAddresses = Settings::getInstance().friendAddresses;
-        for (QString& addr : friendAddresses)
+
+    if (hasFriendWithAddress(friendAddress))
+    {
+        emit failedToAddFriend(userId, QString(tr("Friend is already added")));
+    }
+    else
+    {
+        qDebug() << "Core: requesting friendship of "+friendAddress;
+        CString cMessage(message);
+
+        int friendId = tox_add_friend(tox, CFriendAddress(friendAddress).data(), cMessage.data(), cMessage.size());
+        if (friendId < 0)
         {
-            if (addr.toUpper().contains(friendAddress))
-            {
-                addr = friendAddress;
-                found = true;
-            }
+            emit failedToAddFriend(userId);
         }
-        if (!found)
-            friendAddresses.append(friendAddress);
-        emit friendAdded(friendId, userId);
+        else
+        {
+            // Update our friendAddresses
+            Settings::getInstance().updateFriendAdress(friendAddress);
+            emit friendAdded(friendId, userId);
+        }
     }
     saveConfiguration();
 }
 
-void Core::sendMessage(int friendId, const QString& message)
+int Core::sendMessage(int friendId, const QString& message)
 {
-    QList<CString> cMessages = splitMessage(message);
-
-    for (auto &cMsg :cMessages)
-    {
-        int messageId = tox_send_message(tox, friendId, cMsg.data(), cMsg.size());
-        if (messageId == 0)
-            emit messageSentResult(friendId, message, messageId);
-    }
+    QMutexLocker ml(&messageSendMutex);
+    CString cMessage(message);
+    int receipt = tox_send_message(tox, friendId, cMessage.data(), cMessage.size());
+    emit messageSentResult(friendId, message, receipt);
+    return receipt;
 }
 
-void Core::sendAction(int friendId, const QString &action)
+int Core::sendAction(int friendId, const QString &action)
 {
+    QMutexLocker ml(&messageSendMutex);
     CString cMessage(action);
-    int ret = tox_send_action(tox, friendId, cMessage.data(), cMessage.size());
-    emit actionSentResult(friendId, action, ret);
+    int receipt = tox_send_action(tox, friendId, cMessage.data(), cMessage.size());
+    emit messageSentResult(friendId, action, receipt);
+    return receipt;
 }
 
 void Core::sendTyping(int friendId, bool typing)
@@ -787,6 +801,14 @@ void Core::sendGroupAction(int groupId, const QString& message)
         if (ret == -1)
             emit groupSentResult(groupId, message, ret);
     }
+}
+
+void Core::changeGroupTitle(int groupId, const QString& title)
+{
+    CString cTitle(title);
+    int err = tox_group_set_title(tox, groupId, cTitle.data(), cTitle.size());
+    if (!err)
+        emit groupTitleChanged(groupId, getUsername(), title);
 }
 
 void Core::sendFile(int32_t friendId, QString Filename, QString FilePath, long long filesize)
@@ -972,9 +994,9 @@ void Core::acceptFileRecvRequest(int friendId, int fileNum, QString path)
     tox_file_send_control(tox, file->friendId, 1, file->fileNum, TOX_FILECONTROL_ACCEPT, nullptr, 0);
 }
 
-void Core::removeFriend(int friendId)
+void Core::removeFriend(int friendId, bool fake)
 {
-    if (!tox)
+    if (!tox || fake)
         return;
     if (tox_del_friend(tox, friendId) == -1) {
         emit failedToRemoveFriend(friendId);
@@ -984,14 +1006,17 @@ void Core::removeFriend(int friendId)
     }
 }
 
-void Core::removeGroup(int groupId)
+void Core::removeGroup(int groupId, bool fake)
 {
-    if (!tox)
+    if (!tox || fake)
         return;
     tox_del_groupchat(tox, groupId);
+
+    if (groupCalls[groupId].active)
+        leaveGroupCall(groupId);
 }
 
-QString Core::getUsername()
+QString Core::getUsername() const
 {
     QString sname;
     int size = tox_get_self_name_size(tox);
@@ -1034,21 +1059,21 @@ void Core::setAvatar(uint8_t format, const QByteArray& data)
         tox_send_avatar_info(tox, i);
 }
 
-ToxID Core::getSelfId()
+ToxID Core::getSelfId() const
 {
     uint8_t friendAddress[TOX_FRIEND_ADDRESS_SIZE];
     tox_get_address(tox, friendAddress);
     return ToxID::fromString(CFriendAddress::toString(friendAddress));
 }
 
-QString Core::getIDString()
+QString Core::getIDString() const
 {
     return getSelfId().toString().left(12);
     // 12 is the smallest multiple of four such that
     // 16^n > 10^10 (which is roughly the planet's population)
 }
 
-QString Core::getStatusMessage()
+QString Core::getStatusMessage() const
 {
     QString sname;
     int size = tox_get_self_status_message_size(tox);
@@ -1222,7 +1247,6 @@ bool Core::loadConfiguration(QString path)
         if (err)
         {   // maybe we should handle this better
             qWarning() << "Core: history db isn't encrypted, but encryption is set!! No history loaded...";
-            error = false;
         }
         else
         {
@@ -1238,7 +1262,7 @@ bool Core::loadConfiguration(QString path)
                 if (!HistoryKeeper::checkPassword())
                 {
                     if (QMessageBox::Ok == Widget::getInstance()->showWarningMsgBox(tr("Encrypted log"),
-                                                                tr("Your history is encrypted with different password\nDo you want to try another password?"),
+                                                                tr("Your history is encrypted with different password.\nDo you want to try another password?"),
                                                                 QMessageBox::Ok | QMessageBox::Cancel))
                     {
                         error = true;
@@ -1248,7 +1272,7 @@ bool Core::loadConfiguration(QString path)
                     {
                         error = false;
                         clearPassword(ptHistory);
-                        Widget::getInstance()->showWarningMsgBox(tr("Loggin"), tr("Due to incorret password logging will be disabled"));
+                        Widget::getInstance()->showWarningMsgBox(tr("History"), tr("Due to incorret password history will be disabled."));
                         Settings::getInstance().setEncryptLogs(false);
                         Settings::getInstance().setEnableLogging(false);
                     }
@@ -1349,12 +1373,14 @@ void Core::switchConfiguration(const QString& profile)
         qDebug() << "Core: creating new Id";
     else
         qDebug() << "Core: switching from" << Settings::getInstance().getCurrentProfile() << "to" << profile;
-    
+
     saveConfiguration();
+
+    ready = false;
     clearPassword(ptMain);
     clearPassword(ptHistory);
+
     toxTimer->stop();
-    
     Widget::getInstance()->setEnabledThreadsafe(false);
     if (tox) {
         toxav_kill(toxav);
@@ -1362,6 +1388,7 @@ void Core::switchConfiguration(const QString& profile)
         tox_kill(tox);
         tox = nullptr;
     }
+
     emit selfAvatarChanged(QPixmap(":/img/contact_dark.png"));
     emit blockingClearContacts(); // we need this to block, but signals are required for thread safety
 
@@ -1369,7 +1396,12 @@ void Core::switchConfiguration(const QString& profile)
         loadPath = "";
     else
         loadPath = QDir(Settings::getSettingsDirPath()).filePath(profile + TOX_EXT);
-    Settings::getInstance().setCurrentProfile(profile); 
+
+    // the new profile needs to be set before resetting the settings, so that
+    // we don't load the old profile's profile.ini
+    Settings::getInstance().setCurrentProfile(profile);
+    Settings::getInstance().save(false); // save new profile, but don't write old profile info to newprofile.ini
+    Settings::resetInstance();
     HistoryKeeper::getInstance()->resetInstance();
 
     start();
@@ -1440,6 +1472,22 @@ QString Core::getGroupPeerName(int groupId, int peerId) const
     return name;
 }
 
+ToxID Core::getGroupPeerToxID(int groupId, int peerId) const
+{
+    ToxID peerToxID;
+
+    uint8_t rawID[TOX_CLIENT_ID_SIZE];
+    int res = tox_group_peer_pubkey(tox, groupId, peerId, rawID);
+    if (res == -1)
+    {
+        qWarning() << "Core::getGroupPeerToxID: Unknown error";
+        return peerToxID;
+    }
+
+    peerToxID = ToxID::fromString(CUserId::toString(rawID));
+    return peerToxID;
+}
+
 QList<QString> Core::getGroupPeerNames(int groupId) const
 {
     QList<QString> names;
@@ -1462,10 +1510,24 @@ QList<QString> Core::getGroupPeerNames(int groupId) const
     return names;
 }
 
-int Core::joinGroupchat(int32_t friendnumber, const uint8_t* friend_group_public_key,uint16_t length) const
+int Core::joinGroupchat(int32_t friendnumber, uint8_t type, const uint8_t* friend_group_public_key,uint16_t length) const
 {
-    qDebug() << QString("Trying to join groupchat invite by friend %1").arg(friendnumber);
-    return tox_join_groupchat(tox, friendnumber, friend_group_public_key,length);
+    if (type == TOX_GROUPCHAT_TYPE_TEXT)
+    {
+        qDebug() << QString("Trying to join text groupchat invite sent by friend %1").arg(friendnumber);
+        return tox_join_groupchat(tox, friendnumber, friend_group_public_key,length);
+    }
+    else if (type == TOX_GROUPCHAT_TYPE_AV)
+    {
+        qDebug() << QString("Trying to join AV groupchat invite sent by friend %1").arg(friendnumber);
+        return toxav_join_av_groupchat(tox, friendnumber, friend_group_public_key, length,
+                                       &Audio::playGroupAudioQueued, const_cast<Core*>(this));
+    }
+    else
+    {
+        qWarning() << "Core::joinGroupchat: Unknown groupchat type "<<type;
+        return -1;
+    }
 }
 
 void Core::quitGroupChat(int groupId) const
@@ -1526,7 +1588,7 @@ void Core::sendAllFileData(Core *core, ToxFile* file)
         return;
     }
     emit core->fileTransferInfo(file->friendId, file->fileNum, file->filesize, file->bytesSent, ToxFile::SENDING);
-    qApp->processEvents();
+//    qApp->processEvents();
     long long chunkSize = tox_file_data_size(core->tox, file->friendId);
     if (chunkSize == -1)
     {
@@ -1596,9 +1658,65 @@ void Core::groupInviteFriend(int friendId, int groupId)
     tox_invite_friend(tox, friendId, groupId);
 }
 
-void Core::createGroup()
+void Core::createGroup(uint8_t type)
 {
-    emit emptyGroupCreated(tox_add_groupchat(tox));
+    if (type == TOX_GROUPCHAT_TYPE_TEXT)
+    {
+        emit emptyGroupCreated(tox_add_groupchat(tox));
+    }
+    else if (type == TOX_GROUPCHAT_TYPE_AV)
+    {
+        emit emptyGroupCreated(toxav_add_av_groupchat(tox, &Audio::playGroupAudioQueued, this));
+    }
+    else
+    {
+        qWarning() << "Core::createGroup: Unknown type "<<type;
+    }
+}
+
+bool Core::hasFriendWithAddress(const QString &addr) const
+{
+    // Valid length check
+    if (addr.length() != (TOX_FRIEND_ADDRESS_SIZE * 2))
+    {
+        return false;
+    }
+
+    QString pubkey = addr.left(TOX_CLIENT_ID_SIZE * 2);
+    return hasFriendWithPublicKey(pubkey);
+}
+
+bool Core::hasFriendWithPublicKey(const QString &pubkey) const
+{
+    // Valid length check
+    if (pubkey.length() != (TOX_CLIENT_ID_SIZE * 2))
+    {
+        return false;
+    }
+
+    bool found = false;
+    const uint32_t friendCount = tox_count_friendlist(tox);
+    if (friendCount > 0)
+    {
+        int32_t *ids = new int32_t[friendCount];
+        tox_get_friendlist(tox, ids, friendCount);
+        for (int32_t i = 0; i < static_cast<int32_t>(friendCount); ++i)
+        {
+            // getFriendAddress may return either id (public key) or address
+            QString addrOrId = getFriendAddress(ids[i]);
+
+            // Set true if found
+            if (addrOrId.toUpper().startsWith(pubkey.toUpper()))
+            {
+                found = true;
+                break;
+            }
+        }
+
+        delete[] ids;
+    }
+
+    return found;
 }
 
 QString Core::getFriendAddress(int friendNumber) const
@@ -1609,10 +1727,9 @@ QString Core::getFriendAddress(int friendNumber) const
     QByteArray data((char*)rawid,TOX_CLIENT_ID_SIZE);
     QString id = data.toHex().toUpper();
 
-    QList<QString>& friendAddresses = Settings::getInstance().friendAddresses;
-    for (QString addr : friendAddresses)
-        if (addr.toUpper().contains(id))
-            return addr;
+    QString addr = Settings::getInstance().getFriendAdress(id);
+    if (addr.size() > id.size())
+        return addr;
 
     return id;
 }
@@ -1714,4 +1831,66 @@ bool Core::isPasswordSet(PasswordType passtype)
         return true;
 
     return false;
+}
+
+QString Core::getPeerName(const ToxID& id) const
+{
+    QString name;
+    CUserId cid(id.toString());
+
+    int friendId = tox_get_friend_number(tox, (uint8_t*)cid.data());
+    if (friendId < 0)
+    {
+        qWarning() << "Core::getPeerName: No such peer "+id.toString();
+        return name;
+    }
+
+    const int nameSize = tox_get_name_size(tox, friendId);
+    if (nameSize <= 0)
+    {
+        //qDebug() << "Core::getPeerName: Can't get name of friend "+QString().setNum(friendId)+" ("+id.toString()+")";
+        return name;
+    }
+
+    uint8_t* cname = new uint8_t[nameSize<TOX_MAX_NAME_LENGTH ? TOX_MAX_NAME_LENGTH : nameSize];
+    if (tox_get_name(tox, friendId, cname) != nameSize)
+    {
+        qWarning() << "Core::getPeerName: Can't get name of friend "+QString().setNum(friendId)+" ("+id.toString()+")";
+        delete[] cname;
+        return name;
+    }
+
+    name = name.fromLocal8Bit((char*)cname, nameSize);
+    delete[] cname;
+    return name;
+}
+
+bool Core::isReady()
+{
+    return ready;
+}
+
+void Core::setNospam(uint32_t nospam)
+{
+    uint8_t *nspm = reinterpret_cast<uint8_t*>(&nospam);
+    std::reverse(nspm, nspm + 4);
+    tox_set_nospam(tox, nospam);
+}
+
+void Core::resetCallSources()
+{
+    for (ToxGroupCall& call : groupCalls)
+        call.alSources.clear();
+
+    for (ToxCall& call : calls)
+    {
+        if (call.active && call.alSource)
+        {
+            ALuint tmp = call.alSource;
+            call.alSource = 0;
+            alDeleteSources(1, &tmp);
+
+            alGenSources(1, &call.alSource);
+        }
+    }
 }

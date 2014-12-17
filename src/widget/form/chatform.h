@@ -19,6 +19,10 @@
 
 #include "genericchatform.h"
 #include "src/corestructs.h"
+#include <QLabel>
+#include <QTimer>
+#include <QElapsedTimer>
+#include <QSet>
 
 struct Friend;
 class FileTransferInstance;
@@ -32,6 +36,9 @@ public:
     ChatForm(Friend* chatFriend);
     ~ChatForm();
     void setStatusMessage(QString newMessage);
+    void loadHistory(QDateTime since, bool processUndelivered = false);
+
+    void dischargeReceipt(int receipt);
 
 signals:
     void sendFile(int32_t friendId, QString, QString, long long);
@@ -42,8 +49,11 @@ signals:
     void cancelCall(int callId, int friendId);
     void micMuteToggle(int callId);
     void volMuteToggle(int callId);
+    void aliasChanged(const QString& alias);
 
 public slots:
+    void deliverOfflineMsgs();
+    void clearReciepts();
     void startFileSend(ToxFile file);
     void onFileRecvRequest(ToxFile file);
     void onAvInvite(int FriendId, int CallId, bool video);
@@ -57,6 +67,7 @@ public slots:
     void onAvPeerTimeout(int FriendId, int CallId);
     void onAvMediaChange(int FriendId, int CallId, bool video);
     void onAvCallFailed(int FriendId);
+    void onAvRejected(int FriendId, int CallId);
     void onMicMuteToggle();
     void onVolMuteToggle();
     void onAvatarChange(int FriendId, const QPixmap& pic);
@@ -73,21 +84,29 @@ private slots:
     void onFileTansBtnClicked(QString widgetName, QString buttonName);
     void onFileSendFailed(int FriendId, const QString &fname);
     void onLoadHistory();
+    void updateTime();    
 
 protected:
     // drag & drop
     void dragEnterEvent(QDragEnterEvent* ev);
     void dropEvent(QDropEvent* ev);
+    void registerReceipt(int receipt, int messageID, MessageActionPtr msg);
 
 private:
     Friend* f;
     CroppingLabel *statusMessageLabel;
     NetCamView* netcam;
-    bool audioInputFlag;
-    bool audioOutputFlag;
     int callId;
+    QLabel *callDuration;
+    QTimer *timer;
+    QElapsedTimer timeElapsed;
 
     QHash<uint, FileTransferInstance*> ftransWidgets;
+    void startCounter();
+    void stopCounter();
+    QString secondsToDHMS(quint32 duration);
+    QHash<int, int> receipts;
+    QMap<int, MessageActionPtr> undeliveredMsgs;
 };
 
 #endif // CHATFORM_H

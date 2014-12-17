@@ -30,10 +30,17 @@
 #include "src/widget/chatareawidget.h"
 #include "src/widget/tool/chattextedit.h"
 #include "src/widget/maskablepixmapwidget.h"
+#include "src/core.h"
+#include "src/grouplist.h"
+#include "src/group.h"
+#include "src/friendlist.h"
+#include "src/friend.h"
 
 GenericChatForm::GenericChatForm(QWidget *parent) :
     QWidget(parent),
     earliestMessage(nullptr)
+  , audioInputFlag(false)
+  , audioOutputFlag(false)
 {
     curRow = 0;
 
@@ -42,6 +49,7 @@ GenericChatForm::GenericChatForm(QWidget *parent) :
     nameLabel = new CroppingLabel();
     nameLabel->setObjectName("nameLabel");
     nameLabel->setMinimumHeight(Style::getFont(Style::Medium).pixelSize());
+    nameLabel->setEditable(true);
 
     avatar = new MaskablePixmapWidget(this, QSize(40,40), ":/img/avatar_mask.png");
     QHBoxLayout *headLayout = new QHBoxLayout(), *mainFootLayout = new QHBoxLayout();
@@ -63,16 +71,16 @@ GenericChatForm::GenericChatForm(QWidget *parent) :
     fileButton->setToolTip(tr("Send file(s)"));
     callButton = new QPushButton();
     callButton->setFixedSize(50,40);
-    callButton->setToolTip(tr("Audio call"));
+    callButton->setToolTip(tr("Audio call: RED means you're on a call"));
     videoButton = new QPushButton();
     videoButton->setFixedSize(50,40);
-    videoButton->setToolTip(tr("Video call"));
+    videoButton->setToolTip(tr("Video call: RED means you're on a call"));
     volButton = new QPushButton();
     volButton->setFixedSize(25,20);
-    volButton->setToolTip(tr("Toggle speakers volume"));
+    volButton->setToolTip(tr("Toggle speakers volume: RED is OFF"));
     micButton = new QPushButton();
     micButton->setFixedSize(25,20);
-    micButton->setToolTip(tr("Toggle microphone"));
+    micButton->setToolTip(tr("Toggle microphone: RED is OFF"));
 
     footButtonsSmall->setSpacing(2);
 
@@ -122,10 +130,12 @@ GenericChatForm::GenericChatForm(QWidget *parent) :
     headLayout->addWidget(videoButton);
     headLayout->setSpacing(0);
 
+    volMicLayout->addStretch();
     volMicLayout->addSpacing(1);
     volMicLayout->addWidget(micButton);
     volMicLayout->addSpacing(2);
     volMicLayout->addWidget(volButton);
+    volMicLayout->addStretch();
 
     headTextLayout->addStretch();
     headTextLayout->addWidget(nameLabel);
@@ -142,15 +152,18 @@ GenericChatForm::GenericChatForm(QWidget *parent) :
 
     connect(emoteButton,  SIGNAL(clicked()), this, SLOT(onEmoteButtonClicked()));
     connect(chatWidget, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onChatContextMenuRequested(QPoint)));
+    connect(chatWidget, SIGNAL(onClick()), this, SLOT(onChatWidgetClicked()));
 
     chatWidget->document()->setDefaultStyleSheet(Style::getStylesheet(":ui/chatArea/innerStyle.css"));
     chatWidget->setStyleSheet(Style::getStylesheet(":/ui/chatArea/chatArea.css"));
     headWidget->setStyleSheet(Style::getStylesheet(":/ui/chatArea/chatHead.css"));
+
+    ChatAction::setupFormat();
 }
 
-int GenericChatForm::getNumberOfMessages()
+bool GenericChatForm::isEmpty()
 {
-    return chatWidget->getNumberOfMessages();
+    return chatWidget->isEmpty();
 }
 
 void GenericChatForm::setName(const QString &newName)
@@ -191,17 +204,36 @@ void GenericChatForm::onSaveLogClicked()
     file.close();
 }
 
-void GenericChatForm::addMessage(const QString &author, const QString &message, bool isAction, const QDateTime &datetime)
+MessageActionPtr GenericChatForm::addMessage(const ToxID& author, const QString &message, bool isAction,
+                                             const QDateTime &datetime, bool isSent)
 {
-    ChatActionPtr ca = genMessageActionAction(author, message, isAction, datetime);
+    MessageActionPtr ca = genMessageActionAction(author, message, isAction, datetime);
+    if (isSent)
+        ca->markAsSent();
     chatWidget->insertMessage(ca);
+    return ca;
 }
 
-void GenericChatForm::addAlertMessage(QString author, QString message, QDateTime datetime)
+MessageActionPtr GenericChatForm::addSelfMessage(const QString &message, bool isAction, const QDateTime &datetime, bool isSent)
 {
+    MessageActionPtr ca = genSelfActionAction(message, isAction, datetime);
+    if (isSent)
+        ca->markAsSent();
+    chatWidget->insertMessage(ca);
+    return ca;
+}
+
+void GenericChatForm::addAlertMessage(const ToxID &author, QString message, QDateTime datetime)
+{
+    QString authorStr = resolveToxID(author);
+    if (authorStr.isEmpty())
+        authorStr = author.publicKey;
+
     QString date = datetime.toString(Settings::getInstance().getTimestampFormat());
-    chatWidget->insertMessage(ChatActionPtr(new AlertAction(author, message, date)));
-    previousName = author;
+    MessageActionPtr ca = MessageActionPtr(new AlertAction(getElidedName(authorStr), message, date));
+    ca->markAsSent();
+    chatWidget->insertMessage(ca);
+    previousId = author;
 }
 
 void GenericChatForm::onEmoteButtonClicked()
@@ -219,6 +251,11 @@ void GenericChatForm::onEmoteButtonClicked()
         QPoint pos = -QPoint(widget.sizeHint().width() / 2, widget.sizeHint().height()) - QPoint(0, 10);
         widget.exec(sender->mapToGlobal(pos));
     }
+}
+
+void GenericChatForm::onChatWidgetClicked()
+{
+    msgEdit->setFocus();
 }
 
 void GenericChatForm::onEmoteInsertRequested(QString str)
@@ -253,7 +290,7 @@ QString GenericChatForm::getElidedName(const QString& name)
 void GenericChatForm::clearChatArea(bool notinform)
 {
     chatWidget->clearChatArea();
-    previousName = "";
+    previousId = ToxID();
 
     if (!notinform)
         addSystemInfoMessage(tr("Cleared"), "white", QDateTime::currentDateTime());
@@ -263,17 +300,30 @@ void GenericChatForm::clearChatArea(bool notinform)
         delete earliestMessage;
         earliestMessage = nullptr;
     }
+
+    emit chatAreaCleared();
 }
 
-ChatActionPtr GenericChatForm::genMessageActionAction(const QString &author, QString message, bool isAction, const QDateTime &datetime)
+MessageActionPtr GenericChatForm::genMessageActionAction(const ToxID& author, QString message, bool isAction, const QDateTime &datetime)
 {
     if (earliestMessage == nullptr)
     {
         earliestMessage = new QDateTime(datetime);
     }
 
+    const Core* core = Core::getInstance();
+
     QString date = datetime.toString(Settings::getInstance().getTimestampFormat());
-    bool isMe = (author == Widget::getInstance()->getUsername());
+    bool isMe = (author == core->getSelfId());
+    QString authorStr;
+    if (isMe)
+        authorStr = core->getUsername();
+    else {
+        authorStr = resolveToxID(author);
+    }
+
+    if (authorStr.isEmpty()) // Fallback if we can't find a username
+        authorStr = author.toString();
 
     if (!isAction && message.startsWith("/me "))
     { // always render actions regardless of what core thinks
@@ -283,24 +333,76 @@ ChatActionPtr GenericChatForm::genMessageActionAction(const QString &author, QSt
 
     if (isAction)
     {
-        previousName = ""; // next msg has a name regardless
-        return ChatActionPtr(new ActionAction (getElidedName(author), message, date, isMe));
+        previousId = ToxID(); // next msg has a name regardless
+        return MessageActionPtr(new ActionAction (getElidedName(authorStr), message, date, isMe));
     }
 
-    ChatActionPtr res;
-    if (previousName == author)
-        res = ChatActionPtr(new MessageAction("", message, date, isMe));
+    MessageActionPtr res;
+    if (previousId == author)
+        res = MessageActionPtr(new MessageAction(QString(), message, date, isMe));
     else
-        res = ChatActionPtr(new MessageAction(getElidedName(author), message, date, isMe));
+        res = MessageActionPtr(new MessageAction(getElidedName(authorStr), message, date, isMe));
 
-    previousName = author;
+    previousId = author;
+    return res;
+}
+
+MessageActionPtr GenericChatForm::genSelfActionAction(QString message, bool isAction, const QDateTime &datetime)
+{
+    if (earliestMessage == nullptr)
+    {
+        earliestMessage = new QDateTime(datetime);
+    }
+
+    const Core* core = Core::getInstance();
+
+    QString date = datetime.toString(Settings::getInstance().getTimestampFormat());
+    QString author = core->getUsername();;
+
+    if (!isAction && message.startsWith("/me "))
+    { // always render actions regardless of what core thinks
+        isAction = true;
+        message = message.right(message.length()-4);
+    }
+
+    if (isAction)
+    {
+        previousId = ToxID(); // next msg has a name regardless
+        return MessageActionPtr(new ActionAction (getElidedName(author), message, date, true));
+    }
+
+    MessageActionPtr res;
+    if (previousId.isMine())
+        res = MessageActionPtr(new MessageAction(QString(), message, date, true));
+    else
+        res = MessageActionPtr(new MessageAction(getElidedName(author), message, date, true));
+
+    previousId = Core::getInstance()->getSelfId();
     return res;
 }
 
 ChatActionPtr GenericChatForm::genSystemInfoAction(const QString &message, const QString &type, const QDateTime &datetime)
 {
-    previousName = "";
+    previousId = ToxID();
     QString date = datetime.toString(Settings::getInstance().getTimestampFormat());
 
     return ChatActionPtr(new SystemMessageAction(message, type, date));
+}
+
+QString GenericChatForm::resolveToxID(const ToxID &id)
+{
+    Friend *f = FriendList::findFriend(id);
+    if (f)
+    {
+        return f->getDisplayedName();
+    } else {
+        for (auto it : GroupList::getAllGroups())
+        {
+            QString res = it->resolveToxID(id);
+            if (res.size())
+                return res;
+        }
+    }
+
+    return QString();
 }

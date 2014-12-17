@@ -18,6 +18,8 @@
 #include "core.h"
 #include "misc/settings.h"
 #include "misc/style.h"
+#include "src/friendlist.h"
+#include "src/friend.h"
 #include <math.h>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -208,8 +210,11 @@ bool isFileWritable(QString& path)
 
 void FileTransferInstance::acceptRecvRequest()
 {
-    QString path = Settings::getInstance().getAutoAcceptDir(Core::getInstance()->getFriendAddress(friendId));
-    if (path.isEmpty()) path = Settings::getInstance().getGlobalAutoAcceptDir();
+    QString path = Settings::getInstance().getAutoAcceptDir(FriendList::findFriend(friendId)->getToxID());
+    
+    if (path.isEmpty() && Settings::getInstance().getAutoSaveEnabled())
+        path = Settings::getInstance().getGlobalAutoAcceptDir();
+    
     if (!path.isEmpty())
     {
         QDir dir(path);
@@ -239,7 +244,9 @@ void FileTransferInstance::acceptRecvRequest()
                 if (isFileWritable(path))
                     break;
                 else
-                    QMessageBox::warning(0, tr("Location not writable","Title of permissions popup"), tr("You do not have permission to write that location. Choose another, or cancel the save dialog.", "text of permissions popup"));
+                    QMessageBox::warning(0,
+                                         tr("Location not writable","Title of permissions popup"),
+                                         tr("You do not have permission to write that location. Choose another, or cancel the save dialog.", "text of permissions popup"));
             }
         }
     }
@@ -263,9 +270,7 @@ void FileTransferInstance::pauseResumeRecv()
         return;
 
     Core::getInstance()->pauseResumeFileRecv(friendId, fileNum);
-//    if (state == tsProcessing)
-//        state = tsPaused;
-//    else state = tsProcessing;
+
     if (state == tsPaused)
     {
         effStartTime = QDateTime::currentDateTime();
@@ -284,9 +289,7 @@ void FileTransferInstance::pauseResumeSend()
         return;
 
     Core::getInstance()->pauseResumeFileSend(friendId, fileNum);
-//    if (state == tsProcessing)
-//        state = tsPaused;
-//    else state = tsProcessing;
+
     if (state == tsPaused)
     {
         effStartTime = QDateTime::currentDateTime();
@@ -307,7 +310,6 @@ QString FileTransferInstance::QImage2base64(const QImage &img)
 
 QString FileTransferInstance::getHtmlImage()
 {
-    //qDebug() << "QString FileTransferInstance::getHtmlImage() " << state;
 
     QString res;
     if (state == tsPending || state == tsProcessing || state == tsPaused)

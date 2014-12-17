@@ -34,13 +34,14 @@ public:
 
     int nameColWidth() {return nameWidth;}
     void setNameColWidth(int w);
-    int getNumberOfMessages();
+    bool isEmpty();
 
 public slots:
     void clearChatArea();
 
 signals:
     void onFileTranfertInterract(QString widgetName, QString buttonName);
+    void onClick();
 
 protected:
     void mouseReleaseEvent(QMouseEvent * event);
@@ -59,6 +60,7 @@ private:
     int sliderPosition;
     int nameWidth;
     QTextBlockFormat nameFormat, dateFormat;
+    bool empty;
 };
 
 #endif // CHATAREAWIDGET_H
