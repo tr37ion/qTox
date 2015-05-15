@@ -35,6 +35,7 @@ FORMS    += \
     src/android.ui
     
 CONFIG   += c++11
+CONFIG   += silent
 
 # Rules for creating/updating {ts|qm}-files
 include(translations/i18n.pri)
